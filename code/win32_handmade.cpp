@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <Xinput.h>
 #include <dsound.h>
+#include <stdio.h>
 
 // TODO: Implement sine
 #include <math.h>
@@ -369,18 +370,28 @@ int CALLBACK WinMain(
     LPSTR commandLine,
     int showCode
 ) {
+    // Frequency to translate performance counts to time
+    LARGE_INTEGER perfCountFrequencyResult;
+    QueryPerformanceFrequency(&perfCountFrequencyResult);
+    int64 perfCountFrequency = perfCountFrequencyResult.QuadPart;
+
+    // XInput dll loading
     win32LoadXInput();
+    // Window class init
     WNDCLASSA WindowClass = {};
 
+    // Allocate the buffer for image
     Win32ResizeDIBSection(&globalBackBuffer, 1280, 720);
 
     WindowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-    WindowClass.lpfnWndProc = Win32MainWindowCallback;
+    WindowClass.lpfnWndProc = Win32MainWindowCallback; // handler for Windows events
     WindowClass.hInstance = instance;
     // WindowClass.hIcon;
     WindowClass.lpszClassName = "HandmadeHeroWindowsClass";
 
+    // Window registered
     if (RegisterClassA(&WindowClass)) {
+        // Window created
         HWND window = CreateWindowExA(
             0,
             WindowClass.lpszClassName,
@@ -397,12 +408,15 @@ int CALLBACK WinMain(
         );
 
         if (window) {
+            // Locking device context, it's exclusive for our window
+            // due to CS_OWNDC style flag set on WindowClass
             HDC deviceContext = GetDC(window);
 
-            // Graphics test
+            // Graphics test vars
             int xOffset = 0;
             int yOffset = 0;
 
+            // Sound test vars
             win32_sound_output soundOutput = {};
 
             soundOutput.samplesPerSecond = 48000;
@@ -410,19 +424,27 @@ int CALLBACK WinMain(
             soundOutput.toneVolume = 3000;
             soundOutput.runningSampleIndex = 0;
             soundOutput.wavePeriod = soundOutput.samplesPerSecond / soundOutput.toneHz;
-            soundOutput.bytesPerSample = sizeof(int16)*2;
-            soundOutput.secondaryBufferSize = soundOutput.samplesPerSecond*soundOutput.bytesPerSample;
-            soundOutput.latencySampleCount = soundOutput.samplesPerSecond / 15;
+            soundOutput.bytesPerSample = sizeof(int16)*2; // Stereo 2ch
+            soundOutput.secondaryBufferSize = soundOutput.samplesPerSecond * soundOutput.bytesPerSample;
+            soundOutput.latencySampleCount = soundOutput.samplesPerSecond / 15; // write to buffer 15 times per second, latency
             
+            // Sound buffer init and filling with sine
             win32InitDSound(window, soundOutput.samplesPerSecond, soundOutput.secondaryBufferSize);
             win32FillSoundBuffer(&soundOutput, 0, soundOutput.latencySampleCount * soundOutput.bytesPerSample);
+            // Start playing
             globalSecondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
 
-            
+            // Counter for timings
+            LARGE_INTEGER lastCounter;
+            QueryPerformanceCounter(&lastCounter);
+
+            uint64 lastCycleCount = __rdtsc();
+
             running = true;
             while (running) {
                 MSG message;
 
+                // Fetching and handling all Windows events for the window
                 while (PeekMessageA(&message, 0, 0, 0, PM_REMOVE)) {
                     if (message.message == WM_QUIT) {
                         running = false;
@@ -432,6 +454,7 @@ int CALLBACK WinMain(
                     DispatchMessageA(&message);
                 }
 
+                // Controller input handling
                 // TODO: Should we pull it more frequently?
                 for (DWORD controllerIndex=0; controllerIndex < XUSER_MAX_COUNT; controllerIndex++) {
                     XINPUT_STATE controllerState;
@@ -465,11 +488,13 @@ int CALLBACK WinMain(
                     }
                 }
 
+                // Filling image buffer with test gradient
                 renderWeirdGradient(&globalBackBuffer, xOffset, yOffset);
 
+                // DirectSound output test
                 DWORD playCursor;
                 DWORD writeCursor;
-                // DirectSound output test
+
                 if (SUCCEEDED(globalSecondaryBuffer->GetCurrentPosition(&playCursor, &writeCursor))) {
                     DWORD bytesToLock = (soundOutput.runningSampleIndex * soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
 
@@ -487,6 +512,24 @@ int CALLBACK WinMain(
 
                 win32_window_dimension dimension = win32GetWindowDimesion(window);
                 Win32DisplayBufferInWindow(&globalBackBuffer, deviceContext, dimension.width, dimension.height);
+
+                uint64 endCycleCount = __rdtsc();
+
+                LARGE_INTEGER endCounter;
+                QueryPerformanceCounter(&endCounter);
+
+                int64 cyclesElapsed = endCycleCount - lastCycleCount;
+                int64 counterElapsed = endCounter.QuadPart - lastCounter.QuadPart;
+                real64 msPerFrame = (real64)((1000.0f * (real64)counterElapsed) / (real64)perfCountFrequency);
+                real64 FPS = (real64)perfCountFrequency / (real64)counterElapsed;
+                real64 MCPF = ((real64)cyclesElapsed / (1000.0f * 1000.0f));
+
+                char buffer[256];
+                sprintf(buffer, "ms/frame: %.02f, FPS: %.02f, mcycles/frame: %.02f\n", msPerFrame, FPS, MCPF);
+                OutputDebugStringA(buffer);
+
+                lastCounter = endCounter;
+                lastCycleCount = endCycleCount;
             }
         } else {
             // TODO:
