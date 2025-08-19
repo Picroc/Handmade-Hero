@@ -28,6 +28,8 @@ typedef double real64;
 
 typedef int32 bool32;
 
+#include "handmade.cpp"
+
 struct win32_offscreen_buffer {
     BITMAPINFO info;
 
@@ -71,7 +73,6 @@ global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 typedef DIRECT_SOUND_CREATE(direct_sound_create);
 
 internal void win32LoadXInput(void) {
-    // TODO: Test on Windows 8
     HMODULE xInputLibrary = LoadLibraryA("xinput1_4.dll");
     if (!xInputLibrary) {
         HMODULE xInputLibrary = LoadLibraryA("xinput1_3.dll");
@@ -137,9 +138,6 @@ internal void win32InitDSound(HWND window, int32 samplesPerSecond, int32 bufferS
             if (SUCCEEDED(error)) {
                 OutputDebugStringA("Secondary buffer created successfully.\n");
             }
-
-            // Start it playing
-
         } else {
             // Diagnostic
         }
@@ -157,21 +155,6 @@ internal win32_window_dimension win32GetWindowDimesion(HWND window) {
     result.height = clientRect.bottom - clientRect.top;
 
     return result;
-}
-
-internal void renderWeirdGradient(win32_offscreen_buffer *buffer, int xOffset, int yOffset) {
-    uint8* row = (uint8*)buffer->bitmapMemory;
-    for (int y = 0; y < buffer->height; ++y) {
-        uint32* pixel = (uint32*)row;
-        for (int x = 0; x < buffer->width; ++x) {
-            uint8 blue = (x + xOffset);
-            uint8 green = (y + yOffset); 
-
-            *pixel++ = (green << 8) | blue;
-        }
-
-        row += buffer->pitch;
-    }
 }
 
 internal void Win32ResizeDIBSection(win32_offscreen_buffer *buffer, int width, int height) {
@@ -489,7 +472,13 @@ int CALLBACK WinMain(
                 }
 
                 // Filling image buffer with test gradient
-                renderWeirdGradient(&globalBackBuffer, xOffset, yOffset);
+                game_offscreen_buffer buffer = {};
+                buffer.memory = globalBackBuffer.bitmapMemory;
+                buffer.width = globalBackBuffer.width;
+                buffer.height = globalBackBuffer.height;
+                buffer.pitch = globalBackBuffer.pitch;
+
+                gameUpdateAndRender(&buffer, xOffset, yOffset);
 
                 // DirectSound output test
                 DWORD playCursor;
@@ -523,10 +512,11 @@ int CALLBACK WinMain(
                 real64 msPerFrame = (real64)((1000.0f * (real64)counterElapsed) / (real64)perfCountFrequency);
                 real64 FPS = (real64)perfCountFrequency / (real64)counterElapsed;
                 real64 MCPF = ((real64)cyclesElapsed / (1000.0f * 1000.0f));
-
+# if 0
                 char buffer[256];
                 sprintf(buffer, "ms/frame: %.02f, FPS: %.02f, mcycles/frame: %.02f\n", msPerFrame, FPS, MCPF);
                 OutputDebugStringA(buffer);
+# endif
 
                 lastCounter = endCounter;
                 lastCycleCount = endCycleCount;
