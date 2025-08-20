@@ -1,3 +1,5 @@
+// TODO: Implement sine
+#include <math.h>
 #include <stdint.h>
 
 #define local_persist static
@@ -27,9 +29,6 @@ typedef int32 bool32;
 #include <Xinput.h>
 #include <dsound.h>
 #include <stdio.h>
-
-// TODO: Implement sine
-#include <math.h>
 
 struct win32_offscreen_buffer {
     BITMAPINFO info;
@@ -307,7 +306,27 @@ struct win32_sound_output {
     int latencySampleCount;
 };
 
-internal void win32FillSoundBuffer(win32_sound_output *soundOutput, DWORD bytesToLock, DWORD bytesToWrite) {
+internal void win32ClearBuffer(win32_sound_output *soundOutput) {
+    VOID *region1;
+    DWORD region1Size;
+    VOID *region2;
+    DWORD region2Size;
+    if (SUCCEEDED(globalSecondaryBuffer->Lock(0, soundOutput->secondaryBufferSize, &region1, &region1Size, &region2, &region2Size, 0))) {
+        uint8 *destSample = (uint8 *)region1;
+
+        for (DWORD byteIndex = 0; byteIndex < region1Size; ++byteIndex) {
+            *destSample++ = 0;
+        }
+        destSample = (uint8 *)region2;
+        for (DWORD byteIndex = 0; byteIndex < region2Size; ++byteIndex) {
+            *destSample++ = 0;
+        }
+
+        globalSecondaryBuffer->Unlock(region1, region1Size, region2, region2Size);
+    }
+}
+
+internal void win32FillSoundBuffer(win32_sound_output *soundOutput, DWORD bytesToLock, DWORD bytesToWrite, game_sound_output_buffer *sourceBuffer) {
     // More test
     // Switch to sin wave
     VOID *region1;
@@ -315,32 +334,25 @@ internal void win32FillSoundBuffer(win32_sound_output *soundOutput, DWORD bytesT
     VOID *region2;
     DWORD region2Size;
 
-
     if (SUCCEEDED(globalSecondaryBuffer->Lock(bytesToLock, bytesToWrite, &region1, &region1Size, &region2, &region2Size, 0))) {
         // assert that region1/2Size is valid
         DWORD region1SampleCount = region1Size/soundOutput->bytesPerSample;
-        int16 *sampleOut = (int16 *)region1;
+        int16 *destSample = (int16 *)region1;
+        int16 *sourceSample = sourceBuffer->samples;
+
         for (DWORD sampleIndex = 0; sampleIndex < region1SampleCount; ++sampleIndex) {
-            real32 sineValue = sinf(soundOutput->tSine);
+            *destSample++ = *sourceSample++;
+            *destSample++ = *sourceSample++;
 
-            int16 sampleValue = (int16)(sineValue * soundOutput->toneVolume);
-            *sampleOut++ = sampleValue;
-            *sampleOut++ = sampleValue;
-
-            soundOutput->tSine += 2.0f * pi32 * 1.0f / (real32) soundOutput->wavePeriod;
             ++soundOutput->runningSampleIndex;
         }
         
         DWORD region2SampleCount = region2Size/soundOutput->bytesPerSample;
-        sampleOut = (int16 *)region2;
+        destSample = (int16 *)region2;
         for (DWORD sampleIndex = 0; sampleIndex < region2SampleCount; ++sampleIndex) {
-            real32 sineValue = sinf(soundOutput->tSine);
+            *destSample++ = *sourceSample++;
+            *destSample++ = *sourceSample++;
 
-            int16 sampleValue = (int16)(sineValue * soundOutput->toneVolume);
-            *sampleOut++ = sampleValue;
-            *sampleOut++ = sampleValue;
-
-            soundOutput->tSine += 2.0f * pi32 * 1.0f / (real32) soundOutput->wavePeriod;
             ++soundOutput->runningSampleIndex;
         }
 
@@ -414,7 +426,10 @@ int CALLBACK WinMain(
             
             // Sound buffer init and filling with sine
             win32InitDSound(window, soundOutput.samplesPerSecond, soundOutput.secondaryBufferSize);
-            win32FillSoundBuffer(&soundOutput, 0, soundOutput.latencySampleCount * soundOutput.bytesPerSample);
+            win32ClearBuffer(&soundOutput);
+
+            int16 *samples = (int16 *)VirtualAlloc(0, soundOutput.secondaryBufferSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
             // Start playing
             globalSecondaryBuffer->Play(0, 0, DSBPLAY_LOOPING);
 
@@ -472,24 +487,19 @@ int CALLBACK WinMain(
                     }
                 }
 
-                // Filling image buffer with test gradient
-                game_offscreen_buffer buffer = {};
-                buffer.memory = globalBackBuffer.bitmapMemory;
-                buffer.width = globalBackBuffer.width;
-                buffer.height = globalBackBuffer.height;
-                buffer.pitch = globalBackBuffer.pitch;
-
-                gameUpdateAndRender(&buffer, xOffset, yOffset);
-
                 // DirectSound output test
+                DWORD bytesToLock;
+                DWORD targetCursor;
+                DWORD bytesToWrite;
+
                 DWORD playCursor;
                 DWORD writeCursor;
-
+                bool32 soundIsValid = false;
+                // Tighten up sound logic so we know where we should be writing to
                 if (SUCCEEDED(globalSecondaryBuffer->GetCurrentPosition(&playCursor, &writeCursor))) {
-                    DWORD bytesToLock = (soundOutput.runningSampleIndex * soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
+                    bytesToLock = (soundOutput.runningSampleIndex * soundOutput.bytesPerSample) % soundOutput.secondaryBufferSize;
 
-                    DWORD targetCursor = (playCursor + (soundOutput.latencySampleCount * soundOutput.bytesPerSample)) % soundOutput.secondaryBufferSize;
-                    DWORD bytesToWrite;
+                    targetCursor = (playCursor + (soundOutput.latencySampleCount * soundOutput.bytesPerSample)) % soundOutput.secondaryBufferSize;
                     if (bytesToLock > targetCursor) {
                         bytesToWrite = soundOutput.secondaryBufferSize - bytesToLock;
                         bytesToWrite += targetCursor;
@@ -497,7 +507,26 @@ int CALLBACK WinMain(
                         bytesToWrite = targetCursor - bytesToLock;
                     }
 
-                    win32FillSoundBuffer(&soundOutput, bytesToLock, bytesToWrite);
+                    soundIsValid = true;
+                }
+
+                game_sound_output_buffer soundBuffer = {};
+                soundBuffer.samplesPerSecond = soundOutput.samplesPerSecond;
+                soundBuffer.sampleCount = bytesToWrite / soundOutput.bytesPerSample;
+                soundBuffer.samples = samples;
+
+                // Filling image buffer with test gradient
+                game_offscreen_buffer buffer = {};
+                buffer.memory = globalBackBuffer.bitmapMemory;
+                buffer.width = globalBackBuffer.width;
+                buffer.height = globalBackBuffer.height;
+                buffer.pitch = globalBackBuffer.pitch;
+
+                gameUpdateAndRender(&buffer, xOffset, yOffset, &soundBuffer, soundOutput.toneHz);
+
+
+                if (soundIsValid) {
+                    win32FillSoundBuffer(&soundOutput, bytesToLock, bytesToWrite, &soundBuffer);
                 }
 
                 win32_window_dimension dimension = win32GetWindowDimesion(window);
