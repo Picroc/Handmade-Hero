@@ -1,11 +1,4 @@
-#include <windows.h>
 #include <stdint.h>
-#include <Xinput.h>
-#include <dsound.h>
-#include <stdio.h>
-
-// TODO: Implement sine
-#include <math.h>
 
 #define local_persist static
 #define global_variable static
@@ -29,6 +22,14 @@ typedef double real64;
 typedef int32 bool32;
 
 #include "handmade.cpp"
+
+#include <windows.h>
+#include <Xinput.h>
+#include <dsound.h>
+#include <stdio.h>
+
+// TODO: Implement sine
+#include <math.h>
 
 struct win32_offscreen_buffer {
     BITMAPINFO info;
@@ -72,7 +73,7 @@ global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 #define DIRECT_SOUND_CREATE(name) HRESULT WINAPI name(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter)
 typedef DIRECT_SOUND_CREATE(direct_sound_create);
 
-internal void win32LoadXInput(void) {
+internal void win32LoadXInput() {
     HMODULE xInputLibrary = LoadLibraryA("xinput1_4.dll");
     if (!xInputLibrary) {
         HMODULE xInputLibrary = LoadLibraryA("xinput1_3.dll");

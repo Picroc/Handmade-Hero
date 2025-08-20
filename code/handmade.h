@@ -8,6 +8,7 @@
 // ###### Services that the game provides to the platform layer ######
 
 struct game_offscreen_buffer {
+    // Pixels are 32-bit wide, mem order BB GG RR XX
     void *memory;
 
     int width;
