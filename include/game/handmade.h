@@ -12,19 +12,39 @@
  * 1 - Slow code welcome
  */
 
+#if HANDMADE_INTERNAL
+// IMPORTANT: Not for a shipping game
+struct debug_read_file_result {
+    void *contents;
+    uint32 contentsSize;
+};
+
+debug_read_file_result DEBUGPlatformReadEntireFile(char *filename);
+
+void DEBUGPlatformFreeFileMemory(void *memory);
+
+bool32 DEBUGPlatformWriteEntireFile(char *filename, uint32 memorySize, void *memory);
+#endif
+
 #if HANDMADE_SLOW
 #define Assert(expression)  if(!(expression)) { *(int *)0 = 0; }
 #else
 #define Assert(expression)
 #endif
 
-#define Kilobytes(value) ((value)*1024)
-#define Megabytes(value) (Kilobytes(value)*1024)
-#define Gigabytes(value) (Megabytes(value)*1024)
-#define Terabytes(value) (Gigabytes(value)*1024)
+#define Kilobytes(value) ((value)*1024LL)
+#define Megabytes(value) (Kilobytes(value)*1024LL)
+#define Gigabytes(value) (Megabytes(value)*1024LL)
+#define Terabytes(value) (Gigabytes(value)*1024LL)
 
 #define ArrayCount(array) (sizeof(array) / sizeof((array)[0]))
 // TODO: Swap, min, max, macros
+
+inline uint32 safeTruncateUInt64(uint64 value) {
+    Assert(value < 0xFFFFFFFF);
+    uint32 result = (uint32) value;
+    return result;
+}
 
 // ###### Services that the platform layer provides to the game ######
 
@@ -65,12 +85,13 @@ struct game_controller_input {
 
     real32 maxX;
     real32 maxY;
-    
+
     real32 endX;
     real32 endY;
 
     union {
         game_button_state buttons[6];
+
         struct {
             game_button_state up;
             game_button_state down;
@@ -97,7 +118,8 @@ struct game_memory {
 };
 
 // Required: controller/keyboard input, bitmap buffer, sound buffer, timing
-internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_offscreen_buffer *buffer, game_sound_output_buffer *soundBuffer);
+internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_offscreen_buffer *buffer,
+                                  game_sound_output_buffer *soundBuffer);
 
 
 // NOT PLATFORM LAYER, MOVE EVENTUALLY
