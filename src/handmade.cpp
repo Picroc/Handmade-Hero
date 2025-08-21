@@ -1,4 +1,7 @@
-#include "handmade.h"
+#include <cmath>
+
+#include "game/handmade.h"
+#include "game/common.h"
 
 internal void gameOutputSound(game_sound_output_buffer *soundBuffer, int toneHz) {
     local_persist real32 tSine;
@@ -32,26 +35,32 @@ internal void renderWeirdGradient(game_offscreen_buffer *buffer, int xOffset, in
     }
 }
 
-internal void gameUpdateAndRender(game_input *input, game_offscreen_buffer *buffer, game_sound_output_buffer *soundBuffer) {
-    local_persist int blueOffset = 0;
-    local_persist int greenOffset = 0;
-    local_persist int toneHz = 256;
+internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_offscreen_buffer *buffer, game_sound_output_buffer *soundBuffer) {
+    Assert(sizeof(game_state) <=  memory->permanentStorageSize);
+
+    game_state *gameState = (game_state *)memory->permanentStorage;
+    if (!memory->isInitialised) {
+        gameState->toneHz = 256;
+
+        // TODO: This may be more appropriate to do in the platform layer
+        memory->isInitialised = true;
+    }
 
     game_controller_input *input0 = &input->controllers[0];
     if (input0->isAnalog) {
         // use anaglog movement
-        toneHz = 256 + (int)(128.0f*(input0->endY));
-        blueOffset += (int)4.0f*(input0->endX);
+        gameState->toneHz = 256 + (int)(128.0f*(input0->endY));
+        gameState->blueOffset += (int)4.0f*(input0->endX);
     } else {
         // use digital movement
 
     }
 
     if (input0->down.endedDown) {
-        greenOffset += 1;
+        gameState->greenOffset += 1;
     }
     
     // TODO: Allow sample offsets here for more robust platform options
-    gameOutputSound(soundBuffer, toneHz);
-    renderWeirdGradient(buffer, blueOffset, greenOffset);
+    gameOutputSound(soundBuffer, gameState->toneHz);
+    renderWeirdGradient(buffer, gameState->blueOffset, gameState->greenOffset);
 }
