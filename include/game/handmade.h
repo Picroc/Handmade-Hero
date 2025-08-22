@@ -48,7 +48,7 @@ inline uint32 safeTruncateUInt64(uint64 value) {
 
 // ###### Services that the platform layer provides to the game ######
 
-// TODO: Add
+// TODO: Add something here
 
 
 // ###### Services that the game provides to the platform layer ######
