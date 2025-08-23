@@ -75,38 +75,48 @@ struct game_button_state {
 };
 
 struct game_controller_input {
+    bool32 isConnected;
     bool32 isAnalog;
 
-    real32 startX;
-    real32 startY;
-
-    real32 minX;
-    real32 minY;
-
-    real32 maxX;
-    real32 maxY;
-
-    real32 endX;
-    real32 endY;
+    real32 stickAverageX;
+    real32 stickAverageY;
 
     union {
-        game_button_state buttons[6];
+        game_button_state buttons[12];
 
         struct {
-            game_button_state up;
-            game_button_state down;
-            game_button_state left;
-            game_button_state right;
+            game_button_state moveUp;
+            game_button_state moveDown;
+            game_button_state moveLeft;
+            game_button_state moveRight;
+
+            game_button_state actionUp;
+            game_button_state actionDown;
+            game_button_state actionLeft;
+            game_button_state actionRight;
+
             game_button_state leftShoulder;
             game_button_state rightShoulder;
+
+            game_button_state start;
+            game_button_state back;
+
+
+            // DO NOT WRITE BELOW
+            game_button_state terminator;
         };
     };
 };
 
 struct game_input {
     // TODO: Insert clock value here
-    game_controller_input controllers[4];
+    game_controller_input controllers[5];
 };
+
+internal game_controller_input *getController(game_input *input, int controllerIndex) {
+    Assert(controllerIndex < ArrayCount(input->controllers));
+    return &input->controllers[controllerIndex];
+}
 
 struct game_memory {
     bool32 isInitialised;

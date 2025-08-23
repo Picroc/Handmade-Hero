@@ -3,6 +3,8 @@
 #include "game/common.h"
 #include "game/handmade.h"
 
+#include <dsound.h>
+
 internal void gameOutputSound(game_sound_output_buffer *soundBuffer, int toneHz) {
     local_persist real32 tSine;
     int16 toneVolume = 3000;
@@ -37,7 +39,12 @@ internal void renderWeirdGradient(game_offscreen_buffer *buffer, int xOffset, in
 
 internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_offscreen_buffer *buffer,
                                   game_sound_output_buffer *soundBuffer) {
+    Assert(
+        (&input->controllers[0].terminator - &input->controllers[0].buttons[0]) == ((ArrayCount(input->controllers[0].
+                buttons))
+        ));
     Assert(sizeof(game_state) <= memory->permanentStorageSize);
+
 
     game_state *gameState = (game_state *) memory->permanentStorage;
     if (!memory->isInitialised) {
@@ -56,17 +63,26 @@ internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_o
         memory->isInitialised = true;
     }
 
-    game_controller_input *input0 = &input->controllers[0];
-    if (input0->isAnalog) {
-        // use anaglog movement
-        gameState->toneHz = 256 + (int) (128.0f * (input0->endY));
-        gameState->blueOffset += (int) (4.0f * (input0->endX));
-    } else {
-        // use digital movement
-    }
+    // TODO: Change for input.controllers array count, getting some weird input
+    for (int controllerIndex = 0; controllerIndex < ArrayCount(input->controllers); ++controllerIndex) {
+        game_controller_input *controllerInput = getController(input, controllerIndex);
+        if (controllerInput->isAnalog) {
+            // use anaglog movement
+            gameState->toneHz = 256 + (int) (128.0f * (controllerInput->stickAverageY));
+            gameState->blueOffset += (int) (4.0f * (controllerInput->stickAverageX));
+        } else {
+            // use digital movement
+            if (controllerInput->moveLeft.endedDown) {
+                gameState->blueOffset -= 1;
+            }
+            if (controllerInput->moveRight.endedDown) {
+                gameState->blueOffset += 1;
+            }
+        }
 
-    if (input0->down.endedDown) {
-        gameState->greenOffset += 1;
+        if (controllerInput->actionDown.endedDown) {
+            gameState->greenOffset += 1;
+        }
     }
 
     // TODO: Allow sample offsets here for more robust platform options

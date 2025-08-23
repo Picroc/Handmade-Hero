@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_compile_definitions(HANDMADE_INTERNAL=1 HANDMADE_SLOW=1 WIN32_HANDMADE=1)
 add_compile_options(
-        -Wall -Wconversion -Wno-write-strings -Wno-unused-function -Wno-unused-variable
+        -Wall -Wconversion -Wno-write-strings -Wno-unused-function -Wno-unused-variable -Wno-sign-compare
         -march=native
         -fno-rtti -fno-exceptions
         -mwindows
