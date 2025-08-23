@@ -26,6 +26,6 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp) # папка src, в не
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # link dependencies
-#target_link_libraries(${PROJECT_NAME} PRIVATE
-#        MyLibraryDependencyName::MyLibraryDependencyName
-#)
+target_link_libraries(${PROJECT_NAME} PRIVATE
+        winmm
+)

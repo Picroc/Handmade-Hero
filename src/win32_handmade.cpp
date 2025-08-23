@@ -16,6 +16,7 @@
 global_variable bool running;
 global_variable win32_offscreen_buffer globalBackBuffer;
 global_variable LPDIRECTSOUNDBUFFER globalSecondaryBuffer;
+global_variable int64 globalPerfCountFrequency;
 
 // XInputGetState support
 #define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
@@ -445,6 +446,18 @@ internal real32 win32ProcessXInputStickValue(SHORT stickValue, SHORT deadzone) {
     return result;
 }
 
+inline LARGE_INTEGER win32getWallClock() {
+    LARGE_INTEGER result;
+    QueryPerformanceCounter(&result);
+
+    return result;
+}
+
+inline real32 win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end) {
+    real32 result = (((real32) (end.QuadPart - start.QuadPart)) / (real32) globalPerfCountFrequency);
+    return result;
+}
+
 int CALLBACK WinMain(
     HINSTANCE instance,
     HINSTANCE preInstance,
@@ -453,7 +466,11 @@ int CALLBACK WinMain(
     // Frequency to translate performance counts to time
     LARGE_INTEGER perfCountFrequencyResult;
     QueryPerformanceFrequency(&perfCountFrequencyResult);
-    int64 perfCountFrequency = perfCountFrequencyResult.QuadPart;
+    globalPerfCountFrequency = perfCountFrequencyResult.QuadPart;
+
+    // OS scheduler granularity for more precise sleep
+    UINT desiredSchedulerMs = 1;
+    bool32 sleepIsGranular = timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR;
 
     // XInput dll loading
     win32LoadXInput();
@@ -468,6 +485,10 @@ int CALLBACK WinMain(
     WindowClass.hInstance = instance;
     // WindowClass.hIcon;
     WindowClass.lpszClassName = "HandmadeHeroWindowsClass";
+
+    int monitorRefreshHz = 60;
+    int gameUpdateHz = monitorRefreshHz / 2;
+    real32 targetSecondsPerFrame = 1.0f / (real32) gameUpdateHz;
 
     // Window registered
     if (RegisterClassA(&WindowClass)) {
@@ -530,8 +551,7 @@ int CALLBACK WinMain(
                 game_input *oldInput = &input[1];
 
                 // Counter for timings
-                LARGE_INTEGER lastCounter;
-                QueryPerformanceCounter(&lastCounter);
+                LARGE_INTEGER lastCounter = win32getWallClock();
 
                 uint64 lastCycleCount = __rdtsc();
 
@@ -671,6 +691,7 @@ int CALLBACK WinMain(
                         soundIsValid = true;
                     }
 
+                    // TODO: Sound is wrong for now, not synced
                     game_sound_output_buffer soundBuffer = {};
                     soundBuffer.samplesPerSecond = soundOutput.samplesPerSecond;
                     soundBuffer.sampleCount = bytesToWrite / soundOutput.bytesPerSample;
@@ -689,31 +710,55 @@ int CALLBACK WinMain(
                         win32FillSoundBuffer(&soundOutput, bytesToLock, bytesToWrite, &soundBuffer);
                     }
 
+                    LARGE_INTEGER workCounter = win32getWallClock();
+                    real32 workSecondsElapsed = win32GetSecondsElapsed(lastCounter, workCounter);
+
+                    // TODO: Not tested yet, prob buggy
+                    real32 secondsElapsedForFrame = workSecondsElapsed;
+                    if (secondsElapsedForFrame < targetSecondsPerFrame) {
+                        if (sleepIsGranular) {
+                            DWORD sleepMs = (DWORD) (1000.0f * (targetSecondsPerFrame - secondsElapsedForFrame));
+                            if (sleepMs > 0) {
+                                Sleep(sleepMs - 2);
+                            }
+                        }
+
+                        // Volatile assert - no trust to system sleep
+                        real32 testSecondsElapsedForFrame = win32GetSecondsElapsed(lastCounter, win32getWallClock());
+                        Assert(testSecondsElapsedForFrame < targetSecondsPerFrame);
+
+                        while (secondsElapsedForFrame < targetSecondsPerFrame) {
+                            secondsElapsedForFrame = win32GetSecondsElapsed(lastCounter, win32getWallClock());
+                        }
+                    } else {
+                        // Missed frame rate
+                        // TODO: Logging
+                    }
+
+                    // Display frame AFTER sync delay
                     win32_window_dimension dimension = win32GetWindowDimesion(window);
                     Win32DisplayBufferInWindow(&globalBackBuffer, deviceContext, dimension.width, dimension.height);
-
-                    uint64 endCycleCount = __rdtsc();
-
-                    LARGE_INTEGER endCounter;
-                    QueryPerformanceCounter(&endCounter);
-
-                    int64 cyclesElapsed = endCycleCount - lastCycleCount;
-                    int64 counterElapsed = endCounter.QuadPart - lastCounter.QuadPart;
-                    real64 msPerFrame = (real64) ((1000.0f * (real64) counterElapsed) / (real64) perfCountFrequency);
-                    real64 FPS = (real64) perfCountFrequency / (real64) counterElapsed;
-                    real64 MCPF = ((real64) cyclesElapsed / (1000.0f * 1000.0f));
-#if 0
-                    char buffer[256];
-                    sprintf(buffer, "ms/frame: %.02f, FPS: %.02f, mcycles/frame: %.02f\n", msPerFrame, FPS, MCPF);
-                    OutputDebugStringA(buffer);
-#endif
-
-                    lastCounter = endCounter;
-                    lastCycleCount = endCycleCount;
 
                     game_input *temp = newInput;
                     newInput = oldInput;
                     oldInput = temp;
+
+                    LARGE_INTEGER endCounter = win32getWallClock();
+                    real64 msPerFrame = 1000.0f * win32GetSecondsElapsed(lastCounter, endCounter);
+                    lastCounter = endCounter;
+
+                    uint64 endCycleCount = __rdtsc();
+                    uint64 cyclesElapsed = endCycleCount - lastCycleCount;
+                    lastCycleCount = endCycleCount;
+
+
+                    real64 FPS = 1.0f / msPerFrame;
+                    real64 MCPF = ((real64) cyclesElapsed / (1000.0f * 1000.0f));
+
+                    char FPSbuffer[256];
+                    snprintf(FPSbuffer, sizeof(FPSbuffer), "ms/frame: %.02f, FPS: %.02f, mcycles/frame: %.02f\n",
+                             msPerFrame, FPS, MCPF);
+                    OutputDebugStringA(FPSbuffer);
                 }
             } else {
                 // Logging
