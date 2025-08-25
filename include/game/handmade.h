@@ -128,11 +128,13 @@ struct game_memory {
 };
 
 // Required: controller/keyboard input, bitmap buffer, sound buffer, timing
-internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_offscreen_buffer *buffer,
-                                  game_sound_output_buffer *soundBuffer);
+internal void gameUpdateAndRender(game_memory *memory, game_input *input, game_offscreen_buffer *buffer);
+
+internal void gameGetSoundSamples(game_memory *memory, game_sound_output_buffer *soundBuffer);
 
 
 // NOT PLATFORM LAYER, MOVE EVENTUALLY
+
 
 struct game_state {
     int blueOffset;
