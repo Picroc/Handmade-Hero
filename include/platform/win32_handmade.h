@@ -1,6 +1,8 @@
 #ifndef WIN32_HANDMADE_H
 #define WIN32_HANDMADE_H
 
+#include "handmade.h"
+
 struct win32_offscreen_buffer {
     BITMAPINFO info;
 

@@ -3,7 +3,6 @@
 #include <cstdint>
 
 #include "game/common.h"
-#include "handmade.cpp"
 
 #include <windows.h>
 #include <Xinput.h>
@@ -47,7 +46,33 @@ global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 
 typedef DIRECT_SOUND_CREATE(direct_sound_create);
 
-debug_read_file_result DEBUGPlatformReadEntireFile(char *filename) {
+DEBUG_PLATFORM_FREE_FILE_MEMORY(DEBUGPlatformFreeFileMemory) {
+    VirtualFree(memory, 0, MEM_RELEASE);
+}
+
+DEBUG_PLATFORM_WRITE_ENTIRE_FILE(DEBUGPlatformWriteEntireFile) {
+    bool32 result = false;
+
+    HANDLE fileHandle = CreateFileA(filename, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+    if (fileHandle != INVALID_HANDLE_VALUE) {
+        DWORD bytesWritten;
+        if (WriteFile(fileHandle, memory, memorySize, &bytesWritten, 0)) {
+            // File write successfully
+            result = bytesWritten == memorySize;
+        } else {
+            // Log
+        }
+
+        CloseHandle(fileHandle);
+    } else {
+        // Log
+    }
+
+
+    return result;
+}
+
+DEBUG_PLATFORM_READ_ENTIRE_FILE(DEBUGPlatformReadEntireFile) {
     debug_read_file_result result = {};
 
     HANDLE fileHandle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
@@ -81,30 +106,43 @@ debug_read_file_result DEBUGPlatformReadEntireFile(char *filename) {
     return result;
 }
 
-void DEBUGPlatformFreeFileMemory(void *memory) {
-    VirtualFree(memory, 0, MEM_RELEASE);
-}
+struct win32_game_code {
+    HMODULE gameCodeDLL;
+    game_get_sound_samples *getSoundSamples;
+    game_update_and_render *getUpdateAndRender;
 
-bool32 DEBUGPlatformWriteEntireFile(char *filename, uint32 memorySize, void *memory) {
-    bool32 result = false;
+    bool32 isValid;
+};
 
-    HANDLE fileHandle = CreateFileA(filename, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
-    if (fileHandle != INVALID_HANDLE_VALUE) {
-        DWORD bytesWritten;
-        if (WriteFile(fileHandle, memory, memorySize, &bytesWritten, 0)) {
-            // File write successfully
-            result = bytesWritten == memorySize;
-        } else {
-            // Log
-        }
+internal win32_game_code win32LoadGameCode() {
+    win32_game_code result = {};
 
-        CloseHandle(fileHandle);
-    } else {
-        // Log
+    CopyFile("libhandmade.dll", "handmade_temp.dll", FALSE);
+    result.gameCodeDLL = LoadLibraryA("handmade_temp.dll");
+    if (result.gameCodeDLL) {
+        result.getSoundSamples = (game_get_sound_samples *) GetProcAddress(result.gameCodeDLL, "gameGetSoundSamples");
+        result.getUpdateAndRender = (game_update_and_render *) GetProcAddress(
+            result.gameCodeDLL, "gameUpdateAndRender");
+
+        result.isValid = result.getSoundSamples && result.getUpdateAndRender;
     }
 
+    if (!result.isValid) {
+        result.getUpdateAndRender = gameUpdateAndRenderStub;
+        result.getSoundSamples = gameGetSoundSamplesStub;
+    }
 
     return result;
+}
+
+internal void win32UnloadGameCode(win32_game_code *gameCode) {
+    if (gameCode->gameCodeDLL) {
+        FreeLibrary(gameCode->gameCodeDLL);
+        gameCode->gameCodeDLL = 0;
+    }
+    gameCode->isValid = false;
+    gameCode->getSoundSamples = gameGetSoundSamplesStub;
+    gameCode->getUpdateAndRender = gameUpdateAndRenderStub;
 }
 
 internal void win32LoadXInput() {
@@ -658,6 +696,9 @@ int CALLBACK WinMain(
             game_memory gameMemory = {};
             gameMemory.permanentStorageSize = Megabytes(64);
             gameMemory.transientStorageSize = Gigabytes(1);
+            gameMemory.DEBUGPlatformFreeFileMemory = DEBUGPlatformFreeFileMemory;
+            gameMemory.DEBUGPlatformReadEntireFile = DEBUGPlatformReadEntireFile;
+            gameMemory.DEBUGPlatformWriteEntireFile = DEBUGPlatformWriteEntireFile;
 
             uint64 totalSize = gameMemory.permanentStorageSize + gameMemory.transientStorageSize;
             gameMemory.permanentStorage =
@@ -683,7 +724,16 @@ int CALLBACK WinMain(
 
                 uint64 lastCycleCount = __rdtsc();
 
+                win32_game_code gameCode = win32LoadGameCode();
+                uint32 loadCounter = 0;
+
                 while (running) {
+                    if (loadCounter++ > 120) {
+                        win32UnloadGameCode(&gameCode);
+                        gameCode = win32LoadGameCode();
+                        loadCounter = 0;
+                    }
+
                     game_controller_input *oldKeyboardController = getController(oldInput, 0);
                     game_controller_input *newKeyboardController = getController(newInput, 0);
                     // TODO: Zero macro
@@ -803,7 +853,7 @@ int CALLBACK WinMain(
                     buffer.height = globalBackBuffer.height;
                     buffer.pitch = globalBackBuffer.pitch;
 
-                    gameUpdateAndRender(&gameMemory, newInput, &buffer);
+                    gameCode.getUpdateAndRender(&gameMemory, newInput, &buffer);
 
                     LARGE_INTEGER audioWallClock = win32getWallClock();
                     real64 fromBeginToAudioSeconds = win32GetSecondsElapsed(flipWallClock, audioWallClock);
@@ -878,7 +928,7 @@ int CALLBACK WinMain(
                         soundBuffer.sampleCount = bytesToWrite / soundOutput.bytesPerSample;
                         soundBuffer.samples = samples;
 
-                        gameGetSoundSamples(&gameMemory, &soundBuffer);
+                        gameCode.getSoundSamples(&gameMemory, &soundBuffer);
 #if HANDMADE_INTERNAL
                         win32_debug_time_marker *marker = &debugTimeMarkers[debugTimeMarkerIndex];
                         marker->outputPlayCursor = playCursor;
