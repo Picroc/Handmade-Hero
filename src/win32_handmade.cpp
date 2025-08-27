@@ -106,19 +106,25 @@ DEBUG_PLATFORM_READ_ENTIRE_FILE(DEBUGPlatformReadEntireFile) {
     return result;
 }
 
-struct win32_game_code {
-    HMODULE gameCodeDLL;
-    game_get_sound_samples *getSoundSamples;
-    game_update_and_render *getUpdateAndRender;
+inline FILETIME win32GeLastWriteTime(char *fileName) {
+    FILETIME lastWriteTime = {};
 
-    bool32 isValid;
-};
+    WIN32_FIND_DATA findData;
+    HANDLE findHandle = FindFirstFileA(fileName, &findData);
+    if (findHandle != INVALID_HANDLE_VALUE) {
+        lastWriteTime = findData.ftLastWriteTime;
+        FindClose(findHandle);
+    }
+    return lastWriteTime;
+}
 
-internal win32_game_code win32LoadGameCode() {
+internal win32_game_code win32LoadGameCode(char *sourceFilePath, char *tempFilePath) {
     win32_game_code result = {};
 
-    CopyFile("libhandmade.dll", "handmade_temp.dll", FALSE);
-    result.gameCodeDLL = LoadLibraryA("handmade_temp.dll");
+    result.DLLLastWriteTime = win32GeLastWriteTime(sourceFilePath);
+
+    CopyFile(sourceFilePath, tempFilePath, FALSE);
+    result.gameCodeDLL = LoadLibraryA(tempFilePath);
     if (result.gameCodeDLL) {
         result.getSoundSamples = (game_get_sound_samples *) GetProcAddress(result.gameCodeDLL, "gameGetSoundSamples");
         result.getUpdateAndRender = (game_update_and_render *) GetProcAddress(
@@ -607,11 +613,48 @@ internal DWORD getDistanceBetweenCursors(DWORD forward, DWORD back, int bufferLe
     return forward - back;
 }
 
+void catString(size_t sourceACount, char *sourceA, size_t sourceBCount, char *sourceB, size_t destCount, char *dest) {
+    for (int index = 0; index < sourceACount; ++index) {
+        *dest++ = *sourceA++;
+    }
+
+    for (int index = 0; index < sourceBCount; ++index) {
+        *dest++ = *sourceB++;
+    }
+
+    *dest++ = 0;
+}
+
 int CALLBACK WinMain(
     HINSTANCE instance,
     HINSTANCE preInstance,
     LPSTR commandLine,
     int showCode) {
+    // NOT USER FACING CODE, MAX_PATH IS WRONG
+    char exeFileName[MAX_PATH];
+    DWORD sizeOfFilename = GetModuleFileNameA(0, exeFileName, sizeof(exeFileName));
+    char *onePastLastSlash = exeFileName;
+    for (char *scan = exeFileName; *scan; scan++) {
+        if (*scan == '\\') {
+            onePastLastSlash = scan + 1;
+        }
+    }
+
+    char sourceGameCodeDLLFileName[] = "libhandmade.dll";
+    char sourceGameCodeDLLFullPath[MAX_PATH];
+
+    catString(onePastLastSlash - exeFileName, exeFileName,
+              sizeof(sourceGameCodeDLLFileName) - 1, sourceGameCodeDLLFileName,
+              sizeof(sourceGameCodeDLLFullPath), sourceGameCodeDLLFullPath);
+
+    char tempGameCodeDLLFileName[] = "handmade_temp.dll";
+    char tempGameCodeDLLFullPath[MAX_PATH];
+
+    catString(onePastLastSlash - exeFileName, exeFileName,
+              sizeof(tempGameCodeDLLFileName) - 1, tempGameCodeDLLFileName,
+              sizeof(tempGameCodeDLLFullPath), tempGameCodeDLLFullPath);
+
+
     // Frequency to translate performance counts to time
     LARGE_INTEGER perfCountFrequencyResult;
     QueryPerformanceFrequency(&perfCountFrequencyResult);
@@ -724,14 +767,13 @@ int CALLBACK WinMain(
 
                 uint64 lastCycleCount = __rdtsc();
 
-                win32_game_code gameCode = win32LoadGameCode();
-                uint32 loadCounter = 0;
+                win32_game_code gameCode = win32LoadGameCode(sourceGameCodeDLLFullPath, tempGameCodeDLLFullPath);
 
                 while (running) {
-                    if (loadCounter++ > 120) {
+                    FILETIME newDLLWriteTime = win32GeLastWriteTime(sourceGameCodeDLLFullPath);
+                    if (CompareFileTime(&newDLLWriteTime, &gameCode.DLLLastWriteTime) > 0) {
                         win32UnloadGameCode(&gameCode);
-                        gameCode = win32LoadGameCode();
-                        loadCounter = 0;
+                        gameCode = win32LoadGameCode(sourceGameCodeDLLFullPath, tempGameCodeDLLFullPath);
                     }
 
                     game_controller_input *oldKeyboardController = getController(oldInput, 0);

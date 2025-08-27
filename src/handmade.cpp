@@ -30,7 +30,7 @@ internal void renderWeirdGradient(game_offscreen_buffer *buffer, int xOffset, in
             uint8 blue = (uint8) (x + xOffset);
             uint8 green = (uint8) (y + yOffset);
 
-            *pixel++ = (green << 8) | blue;
+            *pixel++ = (green << 16) | blue;
         }
 
         row += buffer->pitch;
