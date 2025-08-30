@@ -144,15 +144,9 @@ struct game_memory {
 
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 
-GAME_UPDATE_AND_RENDER(gameUpdateAndRenderStub) {
-}
-
 #define GAME_GET_SOUND_SAMPLES(name) void name(game_memory *memory, game_sound_output_buffer *soundBuffer)
 
 typedef GAME_GET_SOUND_SAMPLES(game_get_sound_samples);
-
-GAME_GET_SOUND_SAMPLES(gameGetSoundSamplesStub) {
-}
 
 // NOT PLATFORM LAYER, MOVE EVENTUALLY
 

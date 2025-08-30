@@ -9,13 +9,9 @@ internal void gameOutputSound(game_sound_output_buffer *soundBuffer, game_state 
 
     int16 *sampleOut = soundBuffer->samples;
     for (int sampleIndex = 0; sampleIndex < soundBuffer->sampleCount; ++sampleIndex) {
-#if 0
         real32 sineValue = sinf(gameState->tSine);
 
         int16 sampleValue = (int16) (sineValue * toneVolume);
-#else
-        int16 sampleValue = 0;
-#endif
 
         *sampleOut++ = sampleValue;
         *sampleOut++ = sampleValue;

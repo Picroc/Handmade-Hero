@@ -46,11 +46,16 @@ struct win32_debug_time_marker {
 struct win32_game_code {
     HMODULE gameCodeDLL;
     FILETIME DLLLastWriteTime;
+
+    // CAUTION: Can be 0, check before using
     game_get_sound_samples *getSoundSamples;
+    // CAUTION: Can be 0, check before using
     game_update_and_render *getUpdateAndRender;
 
     bool32 isValid;
 };
+
+#define WIN32_STATE_FILE_NAME_COUNT MAX_PATH
 
 struct win32_state {
     HANDLE recordingHandle;
@@ -61,6 +66,9 @@ struct win32_state {
 
     uint64 totalSize;
     void *gameMemoryBlock;
+
+    char exeFileName[WIN32_STATE_FILE_NAME_COUNT];
+    char *onePastLastEXEFileNameSlash;
 };
 
 #endif // WIN32_HANDMADE_H
