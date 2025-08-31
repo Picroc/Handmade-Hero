@@ -12,27 +12,6 @@
  * 1 - Slow code welcome
  */
 
-#if HANDMADE_INTERNAL
-// IMPORTANT: Not for a shipping game
-struct debug_read_file_result {
-    void *contents;
-    uint32 contentsSize;
-};
-
-#define DEBUG_PLATFORM_READ_ENTIRE_FILE(name) debug_read_file_result name(char *filename)
-
-typedef DEBUG_PLATFORM_READ_ENTIRE_FILE(debug_platform_read_entire_file);
-
-#define DEBUG_PLATFORM_FREE_FILE_MEMORY(name) void name(void *memory)
-
-typedef DEBUG_PLATFORM_FREE_FILE_MEMORY(debug_platform_free_file_memory);
-
-#define DEBUG_PLATFORM_WRITE_ENTIRE_FILE(name) bool32 name(char *filename, uint32 memorySize, void *memory)
-
-typedef DEBUG_PLATFORM_WRITE_ENTIRE_FILE(debug_platform_write_entire_file);
-
-#endif
-
 #if HANDMADE_SLOW
 #define Assert(expression)  if(!(expression)) { *(int *)0 = 0; }
 #else
@@ -52,6 +31,31 @@ inline uint32 safeTruncateUInt64(uint64 value) {
     uint32 result = (uint32) value;
     return result;
 }
+
+struct thread_context {
+    int placeholder;
+};
+
+#if HANDMADE_INTERNAL
+// IMPORTANT: Not for a shipping game
+struct debug_read_file_result {
+    void *contents;
+    uint32 contentsSize;
+};
+
+#define DEBUG_PLATFORM_READ_ENTIRE_FILE(name) debug_read_file_result name(thread_context *thread, char *filename)
+
+typedef DEBUG_PLATFORM_READ_ENTIRE_FILE(debug_platform_read_entire_file);
+
+#define DEBUG_PLATFORM_FREE_FILE_MEMORY(name) void name(thread_context *thread, void *memory)
+
+typedef DEBUG_PLATFORM_FREE_FILE_MEMORY(debug_platform_free_file_memory);
+
+#define DEBUG_PLATFORM_WRITE_ENTIRE_FILE(name) bool32 name(thread_context *thread, char *filename, uint32 memorySize, void *memory)
+
+typedef DEBUG_PLATFORM_WRITE_ENTIRE_FILE(debug_platform_write_entire_file);
+
+#endif
 
 // ###### Services that the platform layer provides to the game ######
 
@@ -118,6 +122,9 @@ struct game_controller_input {
 };
 
 struct game_input {
+    game_button_state mouseButtons[5];
+    int32 mouseX, mouseY, mouseZ;
+
     // TODO: Insert clock value here
     game_controller_input controllers[5];
 };
@@ -140,11 +147,11 @@ struct game_memory {
     debug_platform_write_entire_file *DEBUGPlatformWriteEntireFile;
 };
 
-#define GAME_UPDATE_AND_RENDER(name) void name(game_memory *memory, game_input *input, game_offscreen_buffer *buffer)
+#define GAME_UPDATE_AND_RENDER(name) void name(thread_context *thread, game_memory *memory, game_input *input, game_offscreen_buffer *buffer)
 
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 
-#define GAME_GET_SOUND_SAMPLES(name) void name(game_memory *memory, game_sound_output_buffer *soundBuffer)
+#define GAME_GET_SOUND_SAMPLES(name) void name(thread_context *thread, game_memory *memory, game_sound_output_buffer *soundBuffer)
 
 typedef GAME_GET_SOUND_SAMPLES(game_get_sound_samples);
 

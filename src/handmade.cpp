@@ -69,11 +69,11 @@ extern "C" GAME_UPDATE_AND_RENDER(gameUpdateAndRender) {
     if (!memory->isInitialised) {
         char *filename = __FILE__;
 
-        debug_read_file_result file = memory->DEBUGPlatformReadEntireFile(filename);
+        debug_read_file_result file = memory->DEBUGPlatformReadEntireFile(thread, filename);
         if (file.contents) {
-            memory->DEBUGPlatformWriteEntireFile("test.out", file.contentsSize,
+            memory->DEBUGPlatformWriteEntireFile(thread, "test.out", file.contentsSize,
                                                  file.contents);
-            memory->DEBUGPlatformFreeFileMemory(memory);
+            memory->DEBUGPlatformFreeFileMemory(thread, memory);
         }
 
         gameState->toneHz = 256;
@@ -121,7 +121,15 @@ extern "C" GAME_UPDATE_AND_RENDER(gameUpdateAndRender) {
 
     // TODO: Allow sample offsets here for more robust platform options
     renderWeirdGradient(buffer, gameState->blueOffset, gameState->greenOffset);
+
     renderPlayer(buffer, gameState->playerX, gameState->playerY);
+    renderPlayer(buffer, input->mouseX, input->mouseY);
+
+    for (int buttonIndex = 0; buttonIndex < ArrayCount(input->mouseButtons); ++buttonIndex) {
+        if (input->mouseButtons[buttonIndex].endedDown) {
+            renderPlayer(buffer, 10 + 20 * buttonIndex, 10);
+        }
+    }
 }
 
 extern "C" GAME_GET_SOUND_SAMPLES(gameGetSoundSamples) {
