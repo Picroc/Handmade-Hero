@@ -1,6 +1,10 @@
 #include "../include/common.h"
 #include <SDL2/SDL.h>
 
+#define MAX_CONTROLLERS 4
+SDL_GameController *controller_handles[MAX_CONTROLLERS];
+SDL_Haptic *haptic_handles[MAX_CONTROLLERS];
+
 struct sdl_offscreen_buffer {
     SDL_Texture *texture;
     void *memory;
@@ -90,7 +94,27 @@ bool handle_event(SDL_Event *event) {
 
                     SDLUpdateWindow(global_back_buffer, renderer);
                 } break;
+
             } break;
+        case SDL_KEYUP:
+        case SDL_KEYDOWN: {
+            SDL_Keycode keycode = event->key.keysym.sym;
+
+            bool wasDown = false;
+            bool isDown = event->key.state == SDL_PRESSED ;
+            if (event->key.state == SDL_RELEASED) {
+                wasDown = true;
+            }
+            if (event->key.repeat != 0) {
+                wasDown = true;
+            }
+
+            if (wasDown != isDown) {
+                if (keycode == SDLK_w) {
+                    printf("SDLK_w\n");
+                }
+            }
+        } break;
         }
     }
 
@@ -99,7 +123,7 @@ bool handle_event(SDL_Event *event) {
 
 
 int main() {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_HAPTIC) != 0) {
         // TODO: SDL_Init didn't work
     }
 
@@ -107,6 +131,31 @@ int main() {
     if (window) {
         SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
         if (renderer) {
+            int max_joysticks = SDL_NumJoysticks();
+            int controller_index = 0;
+
+            for (int joystick_index = 0; joystick_index < max_joysticks; ++joystick_index) {
+                if (!SDL_IsGameController(joystick_index)) {
+                    continue;
+                }
+
+                if (controller_index >= MAX_CONTROLLERS) {
+                    break;
+                }
+
+                controller_handles[controller_index] = SDL_GameControllerOpen(joystick_index);
+                SDL_Joystick *joystick = SDL_GameControllerGetJoystick(controller_handles[controller_index]);
+                haptic_handles[controller_index] = SDL_HapticOpenFromJoystick(joystick);
+
+                if (SDL_HapticRumbleInit(haptic_handles[controller_index]) != 0) {
+                    printf("SDL_HapticRumbleInit failed\n");
+                    SDL_HapticClose(haptic_handles[controller_index]);
+                    haptic_handles[controller_index] = 0;
+                }
+
+                controller_index++;
+            }
+
             sdl_window_dimension window_dimension = SDLGetWindowDimension(window);
             SDLResizeTexture(&global_back_buffer, renderer, window_dimension.width, window_dimension.height);
 
@@ -123,6 +172,41 @@ int main() {
                     }
                 }
 
+                for (int controller_index = 0; controller_index < MAX_CONTROLLERS; ++controller_index) {
+                    if (controller_handles[controller_index] != 0 && SDL_GameControllerGetAttached(controller_handles[controller_index])) {
+                        bool up = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_UP);
+                        bool down = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+                        bool left = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+                        bool right = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+
+                        bool start = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_START);
+                        bool back = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_BACK);
+
+                        bool left_shoulder = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+                        bool right_shoulder = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+
+                        bool a_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_A);
+                        bool b_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_B);
+                        bool x_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_X);
+                        bool y_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_Y);
+
+                        int16 stick_x = SDL_GameControllerGetAxis(controller_handles[controller_index], SDL_CONTROLLER_AXIS_LEFTX);
+                        int16 stick_y = SDL_GameControllerGetAxis(controller_handles[controller_index], SDL_CONTROLLER_AXIS_LEFTY);
+
+                        if (a_button) {
+                            yOffset += 2;
+                        }
+
+                        if (b_button) {
+                            if (haptic_handles[controller_index]) {
+                                SDL_HapticRumblePlay(haptic_handles[controller_index], 0.5f, 2000);
+                            }
+                        }
+                    } else {
+                        // Controller is not plugged in
+                    }
+                }
+
                 renderWeirdGradient(global_back_buffer, xOffset, yOffset);
 
                 SDLUpdateWindow(global_back_buffer, renderer);
@@ -134,6 +218,15 @@ int main() {
         }
     } else {
         // TODO: Window not created
+    }
+
+    for (int controller_index = 0; controller_index < MAX_CONTROLLERS; ++controller_index) {
+        if (controller_handles[controller_index]) {
+            SDL_GameControllerClose(controller_handles[controller_index]);
+        }
+        if (haptic_handles[controller_index]) {
+            SDL_HapticClose(haptic_handles[controller_index]);
+        }
     }
 
     SDL_Quit();
