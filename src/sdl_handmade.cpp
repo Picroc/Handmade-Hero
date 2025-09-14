@@ -1,6 +1,10 @@
 #include "../include/common.h"
 #include <SDL2/SDL.h>
 
+#include <math.h>
+
+#define pi32 3.14159265359f
+
 #define MAX_CONTROLLERS 4
 SDL_GameController *controller_handles[MAX_CONTROLLERS];
 SDL_Haptic *haptic_handles[MAX_CONTROLLERS];
@@ -18,10 +22,30 @@ struct sdl_window_dimension {
     int height;
 };
 
+struct sdl_audio_ring_buffer {
+    int size;
+    int write_cursor;
+    int play_cursor;
+    void *data;
+};
+
+struct sdl_sound_output {
+    int samples_per_second;
+    int tone_hz;
+    int16 tone_volume;
+    int32 running_sample_index;
+    int wave_period;
+    int bytes_per_sample;
+    int buffer_size;
+    real32 sin_t;
+    int latency_sample_count;
+};
+
 global_variable bool running;
 global_variable sdl_offscreen_buffer global_back_buffer;
+global_variable sdl_audio_ring_buffer audio_ring_buffer;
 
-void renderWeirdGradient(sdl_offscreen_buffer buffer, int xOffset, int yOffset) {
+internal void renderWeirdGradient(sdl_offscreen_buffer buffer, int xOffset, int yOffset) {
     uint8* row = (uint8*)buffer.memory;
     for (int y = 0; y < buffer.height; ++y) {
         uint32* pixel = (uint32*)row;
@@ -34,14 +58,14 @@ void renderWeirdGradient(sdl_offscreen_buffer buffer, int xOffset, int yOffset) 
     }
 }
 
-sdl_window_dimension SDLGetWindowDimension(SDL_Window *window) {
+internal sdl_window_dimension SDLGetWindowDimension(SDL_Window *window) {
     sdl_window_dimension result;
     SDL_GetWindowSize(window, &result.width, &result.height);
 
     return result;
 }
 
-void SDLResizeTexture(sdl_offscreen_buffer *buffer, SDL_Renderer *renderer, int width, int height) {
+internal void SDLResizeTexture(sdl_offscreen_buffer *buffer, SDL_Renderer *renderer, int width, int height) {
     if (buffer->texture) {
         SDL_DestroyTexture(buffer->texture);
     }
@@ -61,7 +85,7 @@ void SDLResizeTexture(sdl_offscreen_buffer *buffer, SDL_Renderer *renderer, int 
     buffer->pitch = width * bytesPerPixel;
 }
 
-void SDLUpdateWindow(sdl_offscreen_buffer buffer, SDL_Renderer *renderer) {
+internal void SDLUpdateWindow(sdl_offscreen_buffer buffer, SDL_Renderer *renderer) {
     if (SDL_UpdateTexture(buffer.texture, 0, buffer.memory, buffer.pitch) != 0) {
         // TODO: Error
         return;
@@ -71,6 +95,74 @@ void SDLUpdateWindow(sdl_offscreen_buffer buffer, SDL_Renderer *renderer) {
     SDL_RenderPresent(renderer);
 }
 
+internal void SDLAudioCallback(void *user_data, uint8 *audio_data, int length) {
+    sdl_audio_ring_buffer *ring_buffer = (sdl_audio_ring_buffer *)user_data;
+
+    int region_1_size = length;
+    int region_2_size = 0;
+    if (ring_buffer->play_cursor + length > ring_buffer->size) {
+        region_1_size = ring_buffer->size - ring_buffer->play_cursor;
+        region_2_size = length - region_1_size;
+    }
+
+    memcpy(audio_data, (uint8*)(ring_buffer->data) + ring_buffer->play_cursor, region_1_size);
+    memcpy(&audio_data[region_1_size], ring_buffer->data, region_2_size);
+
+    ring_buffer->play_cursor = (ring_buffer->play_cursor + length) % ring_buffer->size;
+    ring_buffer->write_cursor = (ring_buffer->play_cursor + length) % ring_buffer->size;
+}
+
+void SDLInitAudio(int32 samples_per_second, int32 buffer_size) {
+    SDL_AudioSpec audio_settings = {};
+
+    audio_settings.freq = samples_per_second;
+    audio_settings.format = AUDIO_S16LSB;
+    audio_settings.channels = 2;
+    audio_settings.samples = 512;
+    audio_settings.callback = &SDLAudioCallback;
+    audio_settings.userdata = &audio_ring_buffer;
+
+    audio_ring_buffer.size = buffer_size;
+    audio_ring_buffer.data = malloc(buffer_size);
+    audio_ring_buffer.play_cursor = audio_ring_buffer.write_cursor = 0;
+
+    SDL_OpenAudio(&audio_settings, 0);
+}
+
+void SDLFillSoundBuffer(sdl_sound_output *sound_output, int byte_to_lock, int bytes_to_write) {
+    void* region_1 = (uint8*) audio_ring_buffer.data + byte_to_lock;
+    int region_1_size = bytes_to_write;
+    if (region_1_size + byte_to_lock > sound_output->buffer_size) {
+        region_1_size = sound_output->buffer_size - byte_to_lock;
+    }
+    void *region_2 = (uint8*) audio_ring_buffer.data;
+    int region_2_size = bytes_to_write - region_1_size;
+
+    int region_1_sample_count = region_1_size / sound_output->bytes_per_sample;
+    int16 *sample_out = (int16 *) region_1;
+
+    for (int sample_index = 0; sample_index < region_1_sample_count; ++sample_index) {
+        real32 sine_value = sinf(sound_output->sin_t);
+        int16 sample_value = (int16) (sine_value * sound_output->tone_volume);
+        *sample_out++ = sample_value;
+        *sample_out++ = sample_value;
+
+        sound_output->sin_t += 2.0f * pi32 * 1.0f / (real32) sound_output->wave_period;
+        ++sound_output->running_sample_index;
+    }
+
+    int region_2_sample_count = region_2_size / sound_output->bytes_per_sample;
+    sample_out = (int16 *) region_2;
+    for (int sample_index = 0; sample_index < region_2_sample_count; ++sample_index) {
+        real32 sine_value = sinf(sound_output->sin_t);
+        int16 sample_value = (int16) (sine_value * sound_output->tone_volume);
+        *sample_out++ = sample_value;
+        *sample_out++ = sample_value;
+
+        sound_output->sin_t += 2.0f * pi32 * 1.0f / (real32) sound_output->wave_period;
+        ++sound_output->running_sample_index;
+    }
+}
 
 bool handle_event(SDL_Event *event) {
     bool should_quit = false;
@@ -100,18 +192,22 @@ bool handle_event(SDL_Event *event) {
         case SDL_KEYDOWN: {
             SDL_Keycode keycode = event->key.keysym.sym;
 
-            bool wasDown = false;
-            bool isDown = event->key.state == SDL_PRESSED ;
+            bool alt_key_was_down = event->key.keysym.mod & KMOD_ALT;
+
+            bool was_down = false;
+            bool is_down = event->key.state == SDL_PRESSED ;
             if (event->key.state == SDL_RELEASED) {
-                wasDown = true;
+                was_down = true;
             }
             if (event->key.repeat != 0) {
-                wasDown = true;
+                was_down = true;
             }
 
-            if (wasDown != isDown) {
+            if (was_down != is_down) {
                 if (keycode == SDLK_w) {
                     printf("SDLK_w\n");
+                } else if (keycode == SDLK_F4 && alt_key_was_down) {
+                    should_quit = true;
                 }
             }
         } break;
@@ -121,15 +217,14 @@ bool handle_event(SDL_Event *event) {
     return should_quit;
 }
 
-
 int main() {
-    if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_HAPTIC) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_HAPTIC|SDL_INIT_AUDIO) != 0) {
         // TODO: SDL_Init didn't work
     }
 
     SDL_Window *window = SDL_CreateWindow("Handmade Hero", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_RESIZABLE);
     if (window) {
-        SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
+        SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
         if (renderer) {
             int max_joysticks = SDL_NumJoysticks();
             int controller_index = 0;
@@ -163,6 +258,23 @@ int main() {
 
             int xOffset = 0;
             int yOffset = 0;
+
+            sdl_sound_output sound_output = {};
+
+            sound_output.samples_per_second = 48000;
+            sound_output.tone_hz = 256;
+            sound_output.tone_volume = 3000;
+            sound_output.running_sample_index = 0;
+            sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+            sound_output.bytes_per_sample = sizeof(int16) * 2;
+            sound_output.latency_sample_count = sound_output.samples_per_second / 15;
+            sound_output.sin_t = 0.0f;
+
+            sound_output.buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
+            SDLInitAudio(48000, sound_output.buffer_size);
+            SDLFillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count * sound_output.bytes_per_sample);
+
+            SDL_PauseAudio(0);
 
             while (running) {
                 SDL_Event event;
@@ -202,10 +314,33 @@ int main() {
                                 SDL_HapticRumblePlay(haptic_handles[controller_index], 0.5f, 2000);
                             }
                         }
+
+                        xOffset += stick_x / 4096;
+                        yOffset += stick_y / 4096;
+
+                        sound_output.tone_hz = 512 + (int)(256 * ((real32)stick_y / 30000.0f));
+                        sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
                     } else {
                         // Controller is not plugged in
                     }
                 }
+
+                SDL_LockAudio();
+
+                int byte_to_lock = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.buffer_size;
+                int bytes_to_write;
+                int target_cursor = ((audio_ring_buffer.play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.buffer_size);
+
+                if (byte_to_lock > target_cursor) {
+                    bytes_to_write = (sound_output.buffer_size - byte_to_lock);
+                    bytes_to_write += target_cursor;
+                } else {
+                    bytes_to_write = target_cursor - byte_to_lock;
+                }
+
+                SDL_UnlockAudio();
+
+                SDLFillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write);
 
                 renderWeirdGradient(global_back_buffer, xOffset, yOffset);
 
@@ -228,6 +363,8 @@ int main() {
             SDL_HapticClose(haptic_handles[controller_index]);
         }
     }
+
+    SDL_CloseAudio();
 
     SDL_Quit();
 
