@@ -222,6 +222,8 @@ int main() {
         // TODO: SDL_Init didn't work
     }
 
+    uint64 perf_count_frequency = SDL_GetPerformanceFrequency();
+
     SDL_Window *window = SDL_CreateWindow("Handmade Hero", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_RESIZABLE);
     if (window) {
         SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
@@ -277,6 +279,8 @@ int main() {
             SDL_PauseAudio(0);
 
             while (running) {
+                uint64 last_counter = SDL_GetPerformanceCounter();
+
                 SDL_Event event;
                 while (SDL_PollEvent(&event)) {
                     if (handle_event(&event)) {
@@ -347,6 +351,15 @@ int main() {
                 SDLUpdateWindow(global_back_buffer, renderer);
 
                 xOffset++;
+
+                uint64 end_counter = SDL_GetPerformanceCounter();
+                uint64 counter_elapsed = end_counter - last_counter;
+
+                real64 ms_per_frame = 1000.0f * (real64) counter_elapsed / (real64) perf_count_frequency;
+                real64 FPS = (real64) perf_count_frequency / (real64) counter_elapsed;
+
+                printf("%.02f ms/f, %.02ff/s\n", ms_per_frame, FPS);
+                last_counter = end_counter;
             }
         } else {
             // TODO: Renderer failed
