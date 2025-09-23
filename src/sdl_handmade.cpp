@@ -1,4 +1,5 @@
 #include "../include/common.h"
+#include "handmade.cpp"
 #include <SDL2/SDL.h>
 
 #include <math.h>
@@ -44,19 +45,6 @@ struct sdl_sound_output {
 global_variable bool running;
 global_variable sdl_offscreen_buffer global_back_buffer;
 global_variable sdl_audio_ring_buffer audio_ring_buffer;
-
-internal void renderWeirdGradient(sdl_offscreen_buffer buffer, int xOffset, int yOffset) {
-    uint8* row = (uint8*)buffer.memory;
-    for (int y = 0; y < buffer.height; ++y) {
-        uint32* pixel = (uint32*)row;
-        for (int x = 0; x < buffer.width; ++x) {
-            uint8 blue = (x + xOffset);
-            uint8 green = (y + yOffset);
-            *pixel++ = (green << 8) | blue;
-        }
-        row += buffer.pitch;
-    }
-}
 
 internal sdl_window_dimension SDLGetWindowDimension(SDL_Window *window) {
     sdl_window_dimension result;
@@ -346,7 +334,13 @@ int main() {
 
                 SDLFillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write);
 
-                renderWeirdGradient(global_back_buffer, xOffset, yOffset);
+                game_offscreen_buffer buffer = {};
+                buffer.memory = global_back_buffer.memory;
+                buffer.width = global_back_buffer.width;
+                buffer.height = global_back_buffer.height;
+                buffer.pitch = global_back_buffer.pitch;
+
+                game_update_and_render(&buffer, xOffset, yOffset);
 
                 SDLUpdateWindow(global_back_buffer, renderer);
 
