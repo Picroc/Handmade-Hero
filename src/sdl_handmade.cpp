@@ -4,8 +4,6 @@
 
 #include <math.h>
 
-#define pi32 3.14159265359f
-
 #define MAX_CONTROLLERS 4
 SDL_GameController *controller_handles[MAX_CONTROLLERS];
 SDL_Haptic *haptic_handles[MAX_CONTROLLERS];
@@ -111,13 +109,13 @@ void SDLInitAudio(int32 samples_per_second, int32 buffer_size) {
     audio_settings.userdata = &audio_ring_buffer;
 
     audio_ring_buffer.size = buffer_size;
-    audio_ring_buffer.data = malloc(buffer_size);
+    audio_ring_buffer.data = calloc(buffer_size, 1);
     audio_ring_buffer.play_cursor = audio_ring_buffer.write_cursor = 0;
 
     SDL_OpenAudio(&audio_settings, 0);
 }
 
-void SDLFillSoundBuffer(sdl_sound_output *sound_output, int byte_to_lock, int bytes_to_write) {
+void SDLFillSoundBuffer(sdl_sound_output *sound_output, int byte_to_lock, int bytes_to_write, game_sound_output_buffer *source_buffer) {
     void* region_1 = (uint8*) audio_ring_buffer.data + byte_to_lock;
     int region_1_size = bytes_to_write;
     if (region_1_size + byte_to_lock > sound_output->buffer_size) {
@@ -127,27 +125,23 @@ void SDLFillSoundBuffer(sdl_sound_output *sound_output, int byte_to_lock, int by
     int region_2_size = bytes_to_write - region_1_size;
 
     int region_1_sample_count = region_1_size / sound_output->bytes_per_sample;
-    int16 *sample_out = (int16 *) region_1;
+
+    int16 *dest_sample = (int16 *) region_1;
+    int16 *source_sample = source_buffer->samples;
 
     for (int sample_index = 0; sample_index < region_1_sample_count; ++sample_index) {
-        real32 sine_value = sinf(sound_output->sin_t);
-        int16 sample_value = (int16) (sine_value * sound_output->tone_volume);
-        *sample_out++ = sample_value;
-        *sample_out++ = sample_value;
+        *dest_sample++ = *source_sample++;
+        *dest_sample++ = *source_sample++;
 
-        sound_output->sin_t += 2.0f * pi32 * 1.0f / (real32) sound_output->wave_period;
         ++sound_output->running_sample_index;
     }
 
     int region_2_sample_count = region_2_size / sound_output->bytes_per_sample;
-    sample_out = (int16 *) region_2;
+    dest_sample = (int16 *) region_2;
     for (int sample_index = 0; sample_index < region_2_sample_count; ++sample_index) {
-        real32 sine_value = sinf(sound_output->sin_t);
-        int16 sample_value = (int16) (sine_value * sound_output->tone_volume);
-        *sample_out++ = sample_value;
-        *sample_out++ = sample_value;
+        *dest_sample++ = *source_sample++;
+        *dest_sample++ = *source_sample++;
 
-        sound_output->sin_t += 2.0f * pi32 * 1.0f / (real32) sound_output->wave_period;
         ++sound_output->running_sample_index;
     }
 }
@@ -262,7 +256,8 @@ int main() {
 
             sound_output.buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
             SDLInitAudio(48000, sound_output.buffer_size);
-            SDLFillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count * sound_output.bytes_per_sample);
+
+            int16 *samples = (int16 *)malloc(sound_output.buffer_size);
 
             SDL_PauseAudio(0);
 
@@ -332,7 +327,10 @@ int main() {
 
                 SDL_UnlockAudio();
 
-                SDLFillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write);
+                game_sound_output_buffer sound_buffer = {};
+                sound_buffer.samples_per_second = sound_output.samples_per_second;
+                sound_buffer.sample_count = bytes_to_write / sound_output.bytes_per_sample;
+                sound_buffer.samples = samples;
 
                 game_offscreen_buffer buffer = {};
                 buffer.memory = global_back_buffer.memory;
@@ -340,7 +338,9 @@ int main() {
                 buffer.height = global_back_buffer.height;
                 buffer.pitch = global_back_buffer.pitch;
 
-                game_update_and_render(&buffer, xOffset, yOffset);
+                game_update_and_render(&buffer, xOffset, yOffset, &sound_buffer, sound_output.tone_hz);
+                // After sound buffer is filled by the game code, copy it to the device buffer
+                SDLFillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
 
                 SDLUpdateWindow(global_back_buffer, renderer);
 

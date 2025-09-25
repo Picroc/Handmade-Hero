@@ -24,5 +24,7 @@ typedef int64_t int64;
 typedef float real32;
 typedef double real64;
 
+#define pi32 3.14159265359f
+
 
 #endif //HANDMADE_HERO_COMMON_H
