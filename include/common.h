@@ -26,5 +26,7 @@ typedef double real64;
 
 #define pi32 3.14159265359f
 
+#define ArrayCount(array) (sizeof(array) / sizeof((array)[0]))
+
 
 #endif //HANDMADE_HERO_COMMON_H

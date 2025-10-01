@@ -4,41 +4,11 @@
 
 #include <math.h>
 
+#include "../include/sdl_handmade.h"
+
 #define MAX_CONTROLLERS 4
 SDL_GameController *controller_handles[MAX_CONTROLLERS];
 SDL_Haptic *haptic_handles[MAX_CONTROLLERS];
-
-struct sdl_offscreen_buffer {
-    SDL_Texture *texture;
-    void *memory;
-    int width;
-    int height;
-    int pitch;
-};
-
-struct sdl_window_dimension {
-    int width;
-    int height;
-};
-
-struct sdl_audio_ring_buffer {
-    int size;
-    int write_cursor;
-    int play_cursor;
-    void *data;
-};
-
-struct sdl_sound_output {
-    int samples_per_second;
-    int tone_hz;
-    int16 tone_volume;
-    int32 running_sample_index;
-    int wave_period;
-    int bytes_per_sample;
-    int buffer_size;
-    real32 sin_t;
-    int latency_sample_count;
-};
 
 global_variable bool running;
 global_variable sdl_offscreen_buffer global_back_buffer;
@@ -146,6 +116,12 @@ void SDLFillSoundBuffer(sdl_sound_output *sound_output, int byte_to_lock, int by
     }
 }
 
+void SDLProcessGameControllerButton(game_button_state* old_state, game_button_state* new_state,
+    SDL_GameController *controller_handle, SDL_GameControllerButton button) {
+    new_state->ended_down = SDL_GameControllerGetButton(controller_handle, button);
+    new_state->half_transition_count += (new_state->ended_down == old_state->ended_down) ? 0 : 1;
+}
+
 bool handle_event(SDL_Event *event) {
     bool should_quit = false;
 
@@ -240,9 +216,6 @@ int main() {
 
             running = true;
 
-            int xOffset = 0;
-            int yOffset = 0;
-
             sdl_sound_output sound_output = {};
 
             sound_output.samples_per_second = 48000;
@@ -261,6 +234,10 @@ int main() {
 
             SDL_PauseAudio(0);
 
+            game_input input[2] = {};
+            game_input *new_input = &input[0];
+            game_input *old_input = &input[1];
+
             while (running) {
                 uint64 last_counter = SDL_GetPerformanceCounter();
 
@@ -272,41 +249,81 @@ int main() {
                 }
 
                 for (int controller_index = 0; controller_index < MAX_CONTROLLERS; ++controller_index) {
+                    game_controller_input *old_controller = &old_input->controllers[controller_index];
+                    game_controller_input *new_controller = &new_input->controllers[controller_index];
+
                     if (controller_handles[controller_index] != 0 && SDL_GameControllerGetAttached(controller_handles[controller_index])) {
+
                         bool up = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_UP);
                         bool down = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_DOWN);
                         bool left = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_LEFT);
                         bool right = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
 
-                        bool start = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_START);
-                        bool back = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_BACK);
-
-                        bool left_shoulder = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-                        bool right_shoulder = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
-
-                        bool a_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_A);
-                        bool b_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_B);
-                        bool x_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_X);
-                        bool y_button = SDL_GameControllerGetButton(controller_handles[controller_index], SDL_CONTROLLER_BUTTON_Y);
-
                         int16 stick_x = SDL_GameControllerGetAxis(controller_handles[controller_index], SDL_CONTROLLER_AXIS_LEFTX);
                         int16 stick_y = SDL_GameControllerGetAxis(controller_handles[controller_index], SDL_CONTROLLER_AXIS_LEFTY);
 
-                        if (a_button) {
-                            yOffset += 2;
+                        if (stick_x < 0) {
+                            new_controller->end_x = stick_x / 32768.0f;
+                        } else {
+                            new_controller->end_x = stick_x / 32767.0f;
                         }
+                        new_controller->min_x = new_controller->max_x = new_controller->end_x;
 
-                        if (b_button) {
-                            if (haptic_handles[controller_index]) {
-                                SDL_HapticRumblePlay(haptic_handles[controller_index], 0.5f, 2000);
-                            }
+                        if (stick_y < 0) {
+                            new_controller->end_y = stick_y / 32768.0f;
+                        } else {
+                            new_controller->end_y = stick_y / 32767.0f;
                         }
+                        new_controller->min_y = new_controller->max_y = new_controller->end_y;
 
-                        xOffset += stick_x / 4096;
-                        yOffset += stick_y / 4096;
+                        new_controller->is_analog = true;
+                        new_controller->start_x = old_controller->end_x;
+                        new_controller->start_y = old_controller->end_y;
 
-                        sound_output.tone_hz = 512 + (int)(256 * ((real32)stick_y / 30000.0f));
-                        sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+                        SDLProcessGameControllerButton(
+                            &old_controller->left_shoulder,
+                            &new_controller->left_shoulder,
+                            controller_handles[controller_index],
+                            SDL_CONTROLLER_BUTTON_LEFTSHOULDER
+                        );
+                        SDLProcessGameControllerButton(
+                            &old_controller->right_shoulder,
+                            &new_controller->right_shoulder,
+                            controller_handles[controller_index],
+                            SDL_CONTROLLER_BUTTON_RIGHTSHOULDER
+                        );
+
+                        SDLProcessGameControllerButton(
+                            &old_controller->left,
+                            &new_controller->left,
+                            controller_handles[controller_index],
+                            SDL_CONTROLLER_BUTTON_X
+                        );
+                        SDLProcessGameControllerButton(
+                            &old_controller->up,
+                            &new_controller->up,
+                            controller_handles[controller_index],
+                            SDL_CONTROLLER_BUTTON_Y
+                        );
+                        SDLProcessGameControllerButton(
+                            &old_controller->down,
+                            &new_controller->down,
+                            controller_handles[controller_index],
+                            SDL_CONTROLLER_BUTTON_A
+                        );
+                        SDLProcessGameControllerButton(
+                            &old_controller->right,
+                            &new_controller->right,
+                            controller_handles[controller_index],
+                            SDL_CONTROLLER_BUTTON_B
+                        );
+
+
+                        // if (b_button) {
+                        //     if (haptic_handles[controller_index]) {
+                        //         SDL_HapticRumblePlay(haptic_handles[controller_index], 0.5f, 2000);
+                        //     }
+                        // }
                     } else {
                         // Controller is not plugged in
                     }
@@ -338,13 +355,11 @@ int main() {
                 buffer.height = global_back_buffer.height;
                 buffer.pitch = global_back_buffer.pitch;
 
-                game_update_and_render(&buffer, xOffset, yOffset, &sound_buffer, sound_output.tone_hz);
+                game_update_and_render(new_input, &buffer, &sound_buffer);
                 // After sound buffer is filled by the game code, copy it to the device buffer
                 SDLFillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
 
                 SDLUpdateWindow(global_back_buffer, renderer);
-
-                xOffset++;
 
                 uint64 end_counter = SDL_GetPerformanceCounter();
                 uint64 counter_elapsed = end_counter - last_counter;
@@ -354,6 +369,10 @@ int main() {
 
                 printf("%.02f ms/f, %.02ff/s\n", ms_per_frame, FPS);
                 last_counter = end_counter;
+
+                game_input *temp = new_input;
+                new_input = old_input;
+                old_input = temp;
             }
         } else {
             // TODO: Renderer failed

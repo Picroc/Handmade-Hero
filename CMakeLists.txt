@@ -12,5 +12,6 @@ add_executable(Handmade_Hero
 
         src/handmade.cpp
         src/sdl_handmade.cpp
+        include/sdl_handmade.h
 )
 target_link_libraries(Handmade_Hero /opt/homebrew/lib/libSDL2-2.0.0.dylib)
