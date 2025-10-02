@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 4.0)
 project(Handmade_Hero)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DHANDMADE_INTERNAL=1 -DHANDMADE_SLOW=1 -FC")
 
 include_directories(/opt/homebrew/include)
 

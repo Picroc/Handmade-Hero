@@ -38,24 +38,29 @@ internal void game_output_sound(game_sound_output_buffer *sound_buffer, int tone
     }
 }
 
-internal void game_update_and_render(game_input *input, game_offscreen_buffer *buffer, game_sound_output_buffer *sound_buffer) {
-    local_persist int x_offset = 0;
-    local_persist int y_offset = 0;
-    local_persist int tone_hz = 256;
+internal void game_update_and_render(game_memory *memory, game_input *input, game_offscreen_buffer *buffer, game_sound_output_buffer *sound_buffer) {
+    Assert(sizeof(game_state) <= memory->permanent_storage_size);
+
+    game_state *state = (game_state*)memory->permanent_storage;
+    if (!memory->is_initialized) {
+        state->tone_hz = 256;
+
+        memory->is_initialized = true;
+    }
 
     game_controller_input *input_0 = &input->controllers[0];
     if (input_0->is_analog) {
         // use analog movement
-        tone_hz = 256 + (int)(128.0f*(input_0->end_y));
-        y_offset += (int)(4.0f*(input_0->end_x));
+        state->tone_hz = 256 + (int)(128.0f*(input_0->end_y));
+        state->y_offset += (int)(4.0f*(input_0->end_x));
     } else {
         // use digital movement
     }
 
     if (input_0->down.ended_down) {
-        x_offset += 1;
+        state->x_offset += 1;
     }
 
-    render_weird_gradient(buffer, x_offset, y_offset);
-    game_output_sound(sound_buffer, tone_hz);
+    render_weird_gradient(buffer, state->x_offset, state->y_offset);
+    game_output_sound(sound_buffer, state->tone_hz);
 }

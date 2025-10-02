@@ -1,6 +1,7 @@
 #include "../include/common.h"
 #include "handmade.cpp"
 #include <SDL2/SDL.h>
+#include <sys/mman.h>
 
 #include <math.h>
 
@@ -234,6 +235,25 @@ int main() {
 
             SDL_PauseAudio(0);
 
+#if HANDMADE_INTERNAL
+            void *base_address = (void *)Terabytes((uint64)2);
+#else
+            void *base_address = 0;
+#endif
+
+            game_memory memory = {};
+            memory.permanent_storage_size = Megabytes(64);
+            memory.transient_storage_size = Gigabytes((uint64)4);
+
+            uint64 total_size = memory.permanent_storage_size + memory.transient_storage_size;
+            memory.permanent_storage = mmap(base_address, total_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+            memory.transient_storage = (uint8*)memory.permanent_storage + memory.permanent_storage_size;
+
+            if (!(memory.permanent_storage && memory.transient_storage)) {
+                // Memory allocation failed
+                return 0;
+            }
+
             game_input input[2] = {};
             game_input *new_input = &input[0];
             game_input *old_input = &input[1];
@@ -355,7 +375,7 @@ int main() {
                 buffer.height = global_back_buffer.height;
                 buffer.pitch = global_back_buffer.pitch;
 
-                game_update_and_render(new_input, &buffer, &sound_buffer);
+                game_update_and_render(&memory, new_input, &buffer, &sound_buffer);
                 // After sound buffer is filled by the game code, copy it to the device buffer
                 SDLFillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
 
